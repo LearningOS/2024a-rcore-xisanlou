@@ -14,6 +14,8 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::timer::get_time_us;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
@@ -54,6 +56,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; MAX_SYSCALL_NUM],
+            start_time: 0,
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -80,6 +84,10 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
+        let us2 = get_time_us();
+        let sec2 = us2 / 1_000_000;
+        let usec2 = us2 % 1_000_000;
+        task0.start_time = ((sec2 & 0xffff) * 1000 + usec2 / 1000) as usize;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -122,6 +130,12 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            let us1 = get_time_us();
+            let sec1 = us1 / 1_000_000;
+            let usec1 = us1 % 1_000_000;
+            if inner.tasks[next].start_time == 0 {
+                inner.tasks[next].start_time = ((sec1 & 0xffff) * 1000 + usec1 / 1000) as usize;
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -134,6 +148,29 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// Update current task syscall times
+    fn update_current_task_syscall_times(&self, syscall_id: &usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[*syscall_id] += 1;
+    }
+
+    /// Get current task syscall times
+    fn get_current_task_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let syscall_times = inner.tasks[current].syscall_times;
+        syscall_times
+    }
+
+    /// Get current task syscall times
+    fn get_current_task_start_time(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let start_time = inner.tasks[current].start_time;
+        start_time
     }
 }
 
@@ -168,4 +205,19 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Update current task syscall syscall_times
+pub fn update_current_task_syscall_times(syscall_id: &usize) {
+    TASK_MANAGER.update_current_task_syscall_times(syscall_id);
+}
+
+/// Get current task syscall syscall_times
+pub fn get_current_task_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.get_current_task_syscall_times()
+}
+
+/// Get current task start time
+pub fn get_current_task_start_time() -> usize {
+    TASK_MANAGER.get_current_task_start_time()
 }
