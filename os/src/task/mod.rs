@@ -14,6 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::mm::{VirtAddr, MapPermission};
+use crate::timer::get_time_us;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -79,6 +82,10 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        let us2 = get_time_us();
+        let sec2 = us2 / 1_000_000;
+        let usec2 = us2 % 1_000_000;
+        next_task.start_time = ((sec2 & 0xffff) * 1000 + usec2 / 1000) as usize;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -140,6 +147,12 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if inner.tasks[next].start_time == 0 {
+                let us1 = get_time_us();
+                let sec1 = us1 / 1_000_000;
+                let usec1 = us1 % 1_000_000;
+                inner.tasks[next].start_time = ((sec1 & 0xffff) * 1000 + usec1 / 1000) as usize;
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -153,6 +166,53 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    // *** xisanlou add methods *** //
+    /// Update current task syscall times
+    fn update_current_task_syscall_times(&self, syscall_id: &usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[*syscall_id] += 1;
+    }
+
+    /// Get current task syscall times
+    fn get_current_task_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let syscall_times = inner.tasks[current].syscall_times;
+        syscall_times
+    }
+
+    /// Get current task syscall times
+    fn get_current_task_start_time(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let start_time = inner.tasks[current].start_time;
+        start_time
+    }
+
+    // ch4 add begin
+    /// insert framed area to user space.
+    fn current_user_insert_framed_area(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].insert_framed_area(start_va, end_va, permission);
+    }
+
+    /// Test virtual address overlapping
+    fn current_user_vpn_no_overlap(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].vpn_no_overlap(start_va, end_va)
+    }
+
+    /// unmap framed area from user space.
+    fn current_user_unmap_user_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].unmap_user_area(start_va, end_va)
+    }
+    //ch4 add end
 }
 
 /// Run the first task in task list.
@@ -202,3 +262,37 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
+
+
+// ****** xisanlou add function ******
+/// Update current task syscall syscall_times
+pub fn update_current_task_syscall_times(syscall_id: &usize) {
+    TASK_MANAGER.update_current_task_syscall_times(syscall_id);
+}
+
+/// Get current task syscall syscall_times
+pub fn get_current_task_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.get_current_task_syscall_times()
+}
+
+/// Get current task start time
+pub fn get_current_task_start_time() -> usize {
+    TASK_MANAGER.get_current_task_start_time()
+}
+
+// ch4 add begin:
+/// insert framed area to user space.
+pub fn current_user_insert_framed_area(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    TASK_MANAGER.current_user_insert_framed_area(start_va, end_va, permission);
+}
+
+/// Test virtual address overlapping
+pub fn current_user_vpn_no_overlap(start_va: VirtAddr, end_va: VirtAddr) -> bool {
+    TASK_MANAGER.current_user_vpn_no_overlap(start_va, end_va)
+}
+
+/// unmap framed area from user space.
+pub fn current_user_unmap_user_area(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    TASK_MANAGER.current_user_unmap_user_area(start_va, end_va)
+}
+//ch4 add end.

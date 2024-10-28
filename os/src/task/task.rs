@@ -1,6 +1,6 @@
 //! Types related to task management
 use super::TaskContext;
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{TRAP_CONTEXT_BASE, MAX_SYSCALL_NUM};
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
@@ -28,6 +28,11 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The task syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// task start time
+    pub start_time: usize,
 }
 
 impl TaskControlBlock {
@@ -63,6 +68,8 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_times: [0; MAX_SYSCALL_NUM],
+            start_time: 0,
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -95,6 +102,21 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+
+    /// insert framed area to user space.
+    pub fn insert_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        self.memory_set.insert_framed_area(start_va, end_va, permission);
+    }
+
+    /// Test VirtAddr range overlapping.
+    pub fn vpn_no_overlap(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        self.memory_set.vpn_no_overlap(start_va, end_va)
+    }
+
+    /// Test VirtAddr range overlapping.
+    pub fn unmap_user_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        self.memory_set.unmap_user_area(start_va, end_va)
     }
 }
 

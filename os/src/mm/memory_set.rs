@@ -262,6 +262,48 @@ impl MemorySet {
             false
         }
     }
+
+    // *** xisanlou ch4 add
+    /// Test virtual address overlapping
+    #[allow(unused)]
+    pub fn vpn_no_overlap(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let other_vpn_range = VPNRange::new(start_va.floor(), end_va.ceil());
+
+        self.areas
+            .iter()
+            .all(|area| area.vpn_range.no_overlap(other_vpn_range) == true)
+    }
+
+    /// Unmap user owned MapArea
+    #[allow(unused)]
+    pub fn unmap_user_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        // Test start and end Virtual addrsss.
+        
+        if ! start_va.aligned() {
+            return -1;
+        }
+        
+        if ! end_va.aligned() {
+            return -1;
+        }
+        if start_va > end_va {
+            return -1;
+        }
+
+        // Build VPNRange
+        let other_vpn_range = VPNRange::new(start_va.floor(), end_va.ceil());
+        for i in 0..self.areas.len() {
+            if self.areas[i].vpn_range.get_start() == other_vpn_range.get_start()
+                && self.areas[i].vpn_range.get_end() == other_vpn_range.get_end()
+                && self.areas[i].map_perm.contains(MapPermission::U) 
+            {
+                self.areas.swap_remove(i).unmap(&mut self.page_table);
+                return 0;
+            }
+        }
+
+        -1
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
