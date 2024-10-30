@@ -4,6 +4,11 @@
 //! the current running state of CPU is recorded,
 //! and the replacement and transfer of control flow of different applications are executed.
 
+// ****** START xisanlou add No.1
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::{VirtAddr, MapPermission};
+use crate::timer::get_time_us;
+// ****** END xisanlou add No.1
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
@@ -61,6 +66,14 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            // ****** START xisanlou add No.2
+            if task_inner.start_time == 0 {
+                let us = get_time_us();
+                let sec = us / 1_000_000;
+                let usec = us % 1_000_000;
+                task_inner.start_time = ((sec & 0xffff) * 1000 + usec / 1000) as usize;
+            }
+            // ****** END xisanlou add No.2
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -109,3 +122,63 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
 }
+
+// ****** START xisanlou add No.3
+/// Get current task syscall syscall_times
+pub fn get_current_task_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .get_syscall_times()
+}
+
+/// Get current task start time
+pub fn get_current_task_start_time() -> usize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .get_start_time()
+}
+
+/// Test virtual address overlapping
+pub fn current_user_vpn_no_overlap(start_va: VirtAddr, end_va: VirtAddr) -> bool {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .vpn_no_overlap(start_va, end_va)
+}
+
+/// Update current task syscall syscall_times
+pub fn update_current_task_syscall_times(update_syscall_times: &usize) {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .update_syscall_times(update_syscall_times);
+}
+
+/// insert framed area to user space.
+pub fn current_user_insert_framed_area(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .insert_framed_area(start_va, end_va, permission);
+}
+
+/// Unmap current user mapped area in the MemorySet
+pub fn current_user_unmap_user_area(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .unmap_user_area(start_va, end_va)
+}
+
+// ****** xisanlou add at ch5
+/// Set pass value for current user
+pub fn current_user_set_pass(pass: u64) {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .set_pass(pass);
+}
+
+// ****** END xisanlou add No.3

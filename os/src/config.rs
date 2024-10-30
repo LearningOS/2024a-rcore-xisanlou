@@ -23,3 +23,11 @@ pub const TRAP_CONTEXT_BASE: usize = TRAMPOLINE - PAGE_SIZE;
 pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
+
+/// task control block stride max value.
+pub const STRIDE_MAX: u64 = core::u64::MAX;
+/// task control block stride big stride.
+//pub const BIG_STRIDE: u64 = 65535;
+pub const BIG_STRIDE: u64 = core::u64::MAX;
+/// task control block stride task init priority
+pub const TASK_INIT_PRIORITY: u64 = 16;
