@@ -34,7 +34,11 @@ pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    // ****** START xisanlou edit at ch5 No.1
+    Processor, get_current_task_syscall_times, get_current_task_start_time, 
+    update_current_task_syscall_times, current_user_insert_framed_area,
+    current_user_vpn_no_overlap, current_user_unmap_user_area, current_user_set_pass,
+    // ****** END xisanlou edit at ch5 No.1
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {

@@ -244,6 +244,12 @@ where
     pub fn get_end(&self) -> T {
         self.r
     }
+
+    // ****** START xisanlou add at ch5 No.1
+    pub fn no_overlap(&self, other: Self) -> bool {
+        self.get_start() >= other.get_end() || self.get_end() <= other.get_start()
+    }
+    // ****** END xisanlou add at ch5 No.1
 }
 impl<T> IntoIterator for SimpleRange<T>
 where

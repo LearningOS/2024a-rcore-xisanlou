@@ -59,8 +59,15 @@ use process::*;
 
 use crate::fs::Stat;
 
+// ****** START xisanlou add at ch5 No.1
+use crate::task::update_current_task_syscall_times;
+// ****** END xisanlou add at ch5 No.1
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 4]) -> isize {
+    // ****** START xisanlou add at ch5 No.2
+    update_current_task_syscall_times(&syscall_id);
+    // ****** END xisanlou add at ch5 No.2
     match syscall_id {
         SYSCALL_OPEN => sys_open(args[1] as *const u8, args[2] as u32),
         SYSCALL_CLOSE => sys_close(args[0]),

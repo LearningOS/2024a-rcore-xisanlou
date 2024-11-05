@@ -18,6 +18,10 @@ pub struct EasyFileSystem {
 }
 
 type DataBlock = [u8; BLOCK_SZ];
+// ****** START xisanlou edit at ch6 No.1
+const INODE_SIZE: usize = core::mem::size_of::<DiskInode>(); 
+type InodeBlock = [[u8; INODE_SIZE]; BLOCK_SZ / INODE_SIZE];
+// ****** END xisanlou edit at ch6 No.1
 /// An easy fs over a block device
 impl EasyFileSystem {
     /// A data block of block size
@@ -148,4 +152,30 @@ impl EasyFileSystem {
             (block_id - self.data_area_start_block) as usize,
         )
     }
+
+    // ****** START xisanlou add at ch6 No.2
+    /// Get inode id by block and offset
+    pub fn get_inode_id(&self, block_id: usize, block_offset: usize) -> u32 {
+        let inode_size = core::mem::size_of::<DiskInode>();
+        let inodes_per_block = (BLOCK_SZ / inode_size) as u32;
+        (block_id as u32 - self.inode_area_start_block) * inodes_per_block + (block_offset / inode_size) as u32
+    }
+
+    /// Deallocate a inode
+    pub fn dealloc_inode(&mut self, inode_id: u32) {
+        let inode_size = core::mem::size_of::<DiskInode>();
+        let (block_id, block_offset) = self.get_disk_inode_pos(inode_id);
+        get_block_cache(block_id as usize, Arc::clone(&self.block_device))
+            .lock()
+            .modify(0, |inode_block: &mut InodeBlock| {
+                inode_block[block_offset/inode_size].iter_mut().for_each(|p| {
+                    *p = 0;
+                })
+            });
+        self.inode_bitmap.dealloc(
+            &self.block_device,
+            inode_id as usize,
+        )
+    }
+    // ****** END xisanlou add at ch6 No.2
 }

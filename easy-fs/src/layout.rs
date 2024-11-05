@@ -6,7 +6,9 @@ use core::fmt::{Debug, Formatter, Result};
 /// Magic number for sanity check
 const EFS_MAGIC: u32 = 0x3b800001;
 /// The max number of direct inodes
-const INODE_DIRECT_COUNT: usize = 28;
+// ****** START xisanlou edit at ch6 No.1
+const INODE_DIRECT_COUNT: usize = 27;
+// ****** END xisanlou edit at ch6 No.1
 /// The max length of inode name
 const NAME_LENGTH_LIMIT: usize = 27;
 /// The max number of indirect1 inodes
@@ -68,9 +70,13 @@ impl SuperBlock {
     }
 }
 /// Type of a disk inode
-#[derive(PartialEq)]
+// ****** START xisanlou edit at ch6 No.2
+#[derive(PartialEq, Copy, Clone)]
+// ****** END xisanlou edit at ch6 No.2
 pub enum DiskInodeType {
+    /// file
     File,
+    /// directory
     Directory,
 }
 
@@ -86,6 +92,9 @@ pub struct DiskInode {
     pub indirect1: u32,
     pub indirect2: u32,
     type_: DiskInodeType,
+    // ****** START xisanlou edit at ch6 No.3
+    pub link_num: u32,
+    // ****** END xisanlou edit at ch6 No.3
 }
 
 impl DiskInode {
@@ -97,6 +106,9 @@ impl DiskInode {
         self.indirect1 = 0;
         self.indirect2 = 0;
         self.type_ = type_;
+        // ****** START xisanlou edit at ch6 No.4
+        self.link_num = 1;
+        // ****** END xisanlou edit at ch6 No.4
     }
     /// Whether this inode is a directory
     pub fn is_dir(&self) -> bool {
@@ -387,6 +399,145 @@ impl DiskInode {
         }
         write_size
     }
+
+    // ****** START xisanlou edit at ch6 No.5
+    /// Decrease the size of current disk inode
+    pub fn decrease_size(
+        &mut self,
+        new_size: u32,
+        block_device: &Arc<dyn BlockDevice>,
+    ) -> Vec<u32> {
+        let mut v: Vec<u32> = Vec::new();
+
+        let mut current_blocks = self.data_blocks();
+        self.size = new_size;
+        let total_blocks = self.data_blocks();
+        
+        // Only shrink indirect2 to total_blocks
+        if total_blocks > INDIRECT1_BOUND as u32 {
+            // shrink indirect2 from (a0, b0) -> (a1, b1)
+            let mut a0 = (current_blocks as usize - INDIRECT1_BOUND) / INODE_INDIRECT1_COUNT;
+            let mut b0 = (current_blocks as usize - INDIRECT1_BOUND) % INODE_INDIRECT1_COUNT;
+            let a1 = (total_blocks as usize - INDIRECT1_BOUND) / INODE_INDIRECT1_COUNT;
+            let b1 = (total_blocks as usize - INDIRECT1_BOUND) % INODE_INDIRECT1_COUNT;
+            // low-level indirect1
+            get_block_cache(self.indirect2 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect2: &mut IndirectBlock| {
+                    while (a0 > a1) || (a0 == a1 && b0 > b1) {
+                        if b0 == 0 {
+                            b0 = INODE_INDIRECT1_COUNT;
+                            v.push(indirect2[a0]);
+                            indirect2[a0] = 0;
+                            a0 -= 1;                            
+                        }
+                        // fill current
+                        get_block_cache(indirect2[a0] as usize, Arc::clone(block_device))
+                            .lock()
+                            .modify(0, |indirect1: &mut IndirectBlock| {
+                                v.push(indirect1[b0]);
+                                indirect1[b0] = 0;                                
+                            });
+                        // move to next
+                        b0 -= 1;
+                        
+                    }
+                });
+
+            return v;
+        }
+
+        // shrink to INDIRECT1_BOUND
+        if current_blocks > INDIRECT1_BOUND as u32 {
+            // shrink indirect2 from (a0, b0) -> (0, 0)
+            let mut a0 = (current_blocks as usize - INDIRECT1_BOUND) / INODE_INDIRECT1_COUNT;
+            let mut b0 = (current_blocks as usize - INDIRECT1_BOUND) % INODE_INDIRECT1_COUNT;
+            let a1: usize = 0;
+            let b1: usize = 0;       
+
+            // low-level indirect1
+            get_block_cache(self.indirect2 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect2: &mut IndirectBlock| {
+                    while (a0 > a1) || (a0 == a1 && b0 > b1) {
+                        if b0 == 0 {
+                            b0 = INODE_INDIRECT1_COUNT;
+                            v.push(indirect2[a0]);
+                            indirect2[a0] = 0;
+                            a0 -= 1;                            
+                        }
+                        // fill current
+                        get_block_cache(indirect2[a0] as usize, Arc::clone(block_device))
+                            .lock()
+                            .modify(0, |indirect1: &mut IndirectBlock| {
+                                v.push(indirect1[b0]);
+                                indirect1[b0] = 0;                                
+                            });
+                        // move to next
+                        b0 -= 1;
+                        
+                    }
+                });
+            
+            // step up current_blocks
+            current_blocks = INDIRECT1_BOUND as u32;
+            v.push(self.indirect2);
+            self.indirect2 = 0;   
+        }
+
+        if current_blocks == total_blocks {
+            return v;
+        }
+
+        // shrink indirect1
+        if total_blocks > DIRECT_BOUND as u32 {
+            get_block_cache(self.indirect1 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect1: &mut IndirectBlock| {
+                    while current_blocks > total_blocks {
+                        v.push(indirect1[current_blocks as usize]);
+                        indirect1[current_blocks as usize] = 0;
+                        current_blocks -= 1;
+                    }
+                });
+            
+            return v;
+        }
+
+        if current_blocks > DIRECT_BOUND as u32 {
+            get_block_cache(self.indirect1 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect1: &mut IndirectBlock| {
+                    while current_blocks > DIRECT_BOUND as u32 {
+                        v.push(indirect1[current_blocks as usize]);
+                        indirect1[current_blocks as usize] = 0;
+                        current_blocks -= 1;
+                    }
+                });
+            
+                v.push(self.indirect1);
+                self.indirect1 = 0;
+        }
+
+        if current_blocks == total_blocks {
+            return v;
+        }
+
+        // shrink direct
+        while current_blocks > total_blocks {
+            v.push(self.direct[current_blocks as usize]);
+            self.direct[current_blocks as usize] = 0;
+            current_blocks -= 1;
+        }
+
+        return v;
+
+    }
+
+    pub fn get_type(&self) -> Option<DiskInodeType> {
+        Some(self.type_)
+    }
+    // ****** END xisanlou edit at ch6 No.5
 }
 /// A directory entry
 #[repr(C)]

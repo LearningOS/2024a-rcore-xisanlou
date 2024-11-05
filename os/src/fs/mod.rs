@@ -15,11 +15,19 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+    // ****** START xisanlou add at ch6 No.1
+    /// get file stat
+    fn get_fstat(&self) -> Option<Stat> {
+        Some(Stat::new(0, 0, StatMode::NULL, 1))
+    }
+    // ****** END xisanlou add at ch6 No.1
 }
 
 /// The stat of a inode
 #[repr(C)]
-#[derive(Debug)]
+// ****** START xisanlou edit at ch6 No.2
+#[derive(Debug, Copy, Clone)]
+// ****** START xisanlou edit at ch6 No.2
 pub struct Stat {
     /// ID of device containing file
     pub dev: u64,
@@ -32,6 +40,15 @@ pub struct Stat {
     /// unused pad
     pad: [u64; 7],
 }
+
+// ****** START xisanlou add at ch6 No.3
+impl Stat {
+    /// Create a new stat
+    pub fn new(dev: u64, ino: u64, mode: StatMode, nlink: u32) -> Self {
+        Self { dev, ino, mode, nlink, pad: [0; 7] }
+    }
+}
+// ****** END xisanlou add at ch6 No.3
 
 bitflags! {
     /// The mode of a inode
@@ -48,3 +65,6 @@ bitflags! {
 
 pub use inode::{list_apps, open_file, OSInode, OpenFlags};
 pub use stdio::{Stdin, Stdout};
+// ****** START xisanlou add at ch6 No.4
+pub use inode::{link_at, unlink_at};
+// ****** END xisanlou add at ch6 No.4
