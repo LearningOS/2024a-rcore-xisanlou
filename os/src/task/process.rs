@@ -49,6 +49,15 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    // ****** START xisanlou add at ch8 No.1
+    pub enable_deadlock_detect: bool,
+    pub mutex_allocation: Vec<Vec<usize>>,
+    pub semaphore_available: Vec<isize>,
+    pub semaphore_allocation: Vec<Vec<isize>>,
+    pub semaphore_need: Vec<Vec<isize>>,
+    pub finish: Vec<bool>,
+    pub semaphore_wait_queue: Vec<Option<Arc<TaskControlBlock>>>,
+    // ****** END xisanlou add at ch8 No.1
 }
 
 impl ProcessControlBlockInner {
@@ -82,6 +91,52 @@ impl ProcessControlBlockInner {
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
     }
+
+    // ****** START xisanlou add at ch8 No.11
+    /// test task have enough resource to running
+    pub fn task_running_has_enough_semaphores(&self, tid: usize) -> bool {
+        if self.finish[tid] == true {
+            return false;
+        }
+
+        self.semaphore_need[tid]
+            .iter()
+            .zip(self.semaphore_available.iter())
+            .all(|(&x, &y)| x <= y)
+
+    }
+
+    /// alloc resource to task
+    pub fn alloc_semaphores_to_task(&mut self, tid: usize) {
+        // set allocation
+        for i in 0..self.semaphore_available.len() {
+            self.semaphore_allocation[tid][i] += self.semaphore_need[tid][i];
+            self.semaphore_available[i] -= self.semaphore_need[tid][i];
+            self.semaphore_need[tid][i] = 0;
+        }
+    }
+
+    /// dealloc resource from task
+    pub fn dealloc_semaphore_from_task(&mut self, tid: usize) {
+        for i in 0..self.semaphore_available.len() {
+            self.semaphore_available[i] += self.semaphore_allocation[tid][i];
+            self.semaphore_allocation[tid][i] = 0;
+        }
+    }
+
+    /// from wait queue pop a task have ennugh semaphore to run
+    pub fn pop_task_from_wait_queue(&mut self) -> Option<Arc<TaskControlBlock>> {
+        if let Some(num) = self.semaphore_wait_queue
+                    .iter()
+                    .enumerate()
+                    .find(|(_, &ref x)| x.as_ref().unwrap().task_running_has_enough_semaphores())
+                    .map(|(i, _)| i) {
+            return self.semaphore_wait_queue.remove(num);    
+        } else {
+            return None;
+        }
+    }  
+    // ****** END xisanlou add at ch8 No.11
 }
 
 impl ProcessControlBlock {
@@ -119,6 +174,15 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    // ****** START xisanlou add at ch8 No.2
+                    enable_deadlock_detect: false,
+                    mutex_allocation: Vec::new(),
+                    semaphore_available: Vec::new(),
+                    semaphore_allocation: Vec::new(),
+                    semaphore_need: Vec::new(),
+                    finish: Vec::new(),
+                    semaphore_wait_queue: Vec::new(),
+                    // ****** END xisanlou add at ch8 No.2
                 })
             },
         });
@@ -144,6 +208,9 @@ impl ProcessControlBlock {
         // add main thread to the process
         let mut process_inner = process.inner_exclusive_access();
         process_inner.tasks.push(Some(Arc::clone(&task)));
+        // ****** START xisanlou add at ch8 No.4
+        process_inner.finish.push(false);
+        // ****** END xisanlou add at ch8 No.4
         drop(process_inner);
         insert_into_pid2process(process.getpid(), Arc::clone(&process));
         // add main thread to scheduler
@@ -245,6 +312,15 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    // ****** START xisanlou add at ch8 No.3
+                    enable_deadlock_detect: false,
+                    mutex_allocation: Vec::new(),
+                    semaphore_available: Vec::new(),
+                    semaphore_allocation: Vec::new(),
+                    semaphore_need: Vec::new(),
+                    finish: Vec::new(),
+                    semaphore_wait_queue: Vec::new(),
+                    // ****** END xisanlou add at ch8 No.3
                 })
             },
         });
@@ -267,6 +343,9 @@ impl ProcessControlBlock {
         // attach task to child process
         let mut child_inner = child.inner_exclusive_access();
         child_inner.tasks.push(Some(Arc::clone(&task)));
+        // ****** START xisanlou add at ch8 No.5
+        child_inner.finish.push(false);
+        // ****** END xisanlou add at ch8 No.5
         drop(child_inner);
         // modify kstack_top in trap_cx of this thread
         let task_inner = task.inner_exclusive_access();

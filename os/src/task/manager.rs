@@ -71,6 +71,9 @@ pub fn add_task(task: Arc<TaskControlBlock>) {
 /// Wake up a task
 pub fn wakeup_task(task: Arc<TaskControlBlock>) {
     trace!("kernel: TaskManager::wakeup_task");
+    if task.enable_deadlock_detect() {
+        task.alloc_semaphores_to_task();
+    }
     let mut task_inner = task.inner_exclusive_access();
     task_inner.task_status = TaskStatus::Ready;
     drop(task_inner);

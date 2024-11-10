@@ -8,7 +8,11 @@ use crate::{
     },
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
-
+// ****** START xisanlou add at ch8 No.2
+use crate::mm::translated_byte_buffer;
+use crate::timer::get_time_us;
+use core::{mem::size_of, slice::from_raw_parts};
+// ****** END xisanlou add at ch8 No.2
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -163,11 +167,37 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+    // ****** START xisanlou add at ch8 No.1
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
+        "kernel:pid[{}] sys_get_time ",
+        current_task().unwrap().process.upgrade().unwrap().getpid(),
     );
-    -1
+    
+    let buffers = translated_byte_buffer(
+        current_user_token(),
+        _ts as *const u8,
+        size_of::<TimeVal>(),
+    );
+    if buffers.len() == 0 {
+        return -1;
+    }
+
+    let us = get_time_us();
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+
+    let mut offset = 0;
+    for buffer in buffers {
+        unsafe {
+            let src = from_raw_parts((&time_val as *const TimeVal as *const u8).wrapping_add(offset), buffer.len());
+            buffer.copy_from_slice(src);
+        }
+        offset += buffer.len();
+    }
+    0
+    // ****** END xisanlou add at ch8 No.1
 }
 
 /// task_info syscall

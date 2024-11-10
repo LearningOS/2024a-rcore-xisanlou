@@ -4,6 +4,10 @@ use crate::{
     trap::{trap_handler, TrapContext},
 };
 use alloc::sync::Arc;
+// ****** START xisanlou add at ch8 No.2
+use alloc::vec;
+// ****** START xisanlou add at ch8 No.2
+
 /// thread create syscall
 pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
@@ -37,10 +41,31 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     let mut process_inner = process.inner_exclusive_access();
     // add new thread to current process
     let tasks = &mut process_inner.tasks;
+    let mut tasks_increase_num = 0;
     while tasks.len() < new_task_tid + 1 {
         tasks.push(None);
+        tasks_increase_num += 1;
+        
     }
     tasks[new_task_tid] = Some(Arc::clone(&new_task));
+    while tasks_increase_num != 0 {
+        // ****** START xisanlou add at ch8 No.1
+        let mutex_number = process_inner.mutex_list.len();
+        if mutex_number != 0 {
+            process_inner.mutex_allocation.push(vec![0; mutex_number]);
+        }
+
+        let sem_number = process_inner.semaphore_list.len();
+        if sem_number != 0 {
+            process_inner.semaphore_allocation.push(vec![0; sem_number]);
+            process_inner.semaphore_need.push(vec![0; sem_number]);
+        }
+
+        process_inner.finish.push(false);
+
+        // ****** END xisanlou add at ch8 No.1
+        tasks_increase_num -= 1;
+    }
     let new_task_trap_cx = new_task_inner.get_trap_cx();
     *new_task_trap_cx = TrapContext::app_init_context(
         entry,
