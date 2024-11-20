@@ -103,7 +103,6 @@ impl ProcessControlBlockInner {
             .iter()
             .zip(self.semaphore_available.iter())
             .all(|(&x, &y)| x <= y)
-
     }
 
     /// alloc resource to task
@@ -126,16 +125,98 @@ impl ProcessControlBlockInner {
 
     /// from wait queue pop a task have ennugh semaphore to run
     pub fn pop_task_from_wait_queue(&mut self) -> Option<Arc<TaskControlBlock>> {
+        //println!("HaogyKernel pop_task_from_wait_queue: Begin");
         if let Some(num) = self.semaphore_wait_queue
                     .iter()
                     .enumerate()
-                    .find(|(_, &ref x)| x.as_ref().unwrap().task_running_has_enough_semaphores())
+                    .find(|(_, &ref x)| {self.task_running_has_enough_semaphores(x.as_ref().unwrap().get_tid())})
                     .map(|(i, _)| i) {
+            //println!("HaogyKernel pop_task_from_wait_queue: pop task={}", num);
             return self.semaphore_wait_queue.remove(num);    
         } else {
+            //println!("Haogy Kernel pop_task_from_wait_queue: None wait_queue.len={:?} need={:?} available={:?}", 
+            //    self.semaphore_wait_queue.len(), self.semaphore_need, self.semaphore_available);
             return None;
         }
-    }  
+    } 
+    
+    /// tids of task in waited list
+    pub fn tids_in_waited_list(&self) -> Vec<usize> {
+        self.semaphore_wait_queue.clone().iter().map(|x| x.as_ref().unwrap().get_tid()).collect()
+
+    }
+
+    /// test safety status
+    pub fn alloc_is_safety(&self, tid: usize) -> bool {
+        //println!("Haogy alloc_is_safety BEGIN: tid={}", tid);
+        let new_need = self.semaphore_need.to_vec();
+        let mut new_available = self.semaphore_available.to_vec();
+        let mut new_finish = self.finish.to_vec();
+        let mut new_waited_tids: Vec<usize> = self.tids_in_waited_list().to_vec();
+        
+        //println!("Haogy alloc_is_safety: tid={} new_waited_tids={:?} ", tid, new_waited_tids);
+        let tasks_number = new_finish.len();
+        let resources_number = new_available.len();
+    
+        // push self to wait list
+        new_waited_tids.push(tid);
+        new_waited_tids.sort();
+    
+        // find  not waited task and dealloc resources
+        for i in 0..tasks_number {
+            if new_finish[i] == false && new_waited_tids.iter().find(|&&x| x == i).is_none() {
+                //println!("Haogy alloc_is_safety: task[{}] is running and add to alloc", i);
+                for t in 0..resources_number {
+                    new_available[t] += self.semaphore_allocation[i][t];
+                }
+                new_finish[i] = true;
+            }   
+        }
+    
+        loop {
+            if new_waited_tids.len() == 0 {
+                break;
+            }
+            
+            //println!("Haogy alloc_is_safety before can_running_task: tid={}", tid);
+            let mut wait_tid_tuple: Option<(usize, usize)> = None;
+            
+            for i in 0..new_waited_tids.len() {
+                let tid4 = new_waited_tids[i];
+                if new_need[tid4].iter().zip(new_available.clone().iter()).all(|(&x, &y)| x <= y) {
+                    
+                    wait_tid_tuple = Some((i, tid4));
+                    break;
+                }
+            }
+
+            if let Some((serial, wait_tid)) = wait_tid_tuple {
+                //println!("Haogy alloc_is_safety: can_pop_task=true: tid={} wait_tid={}", tid, wait_tid);
+                // self can run
+                if tid == wait_tid {
+                    //println!("Haogy alloc_is_safety: return=true tid={} wait_tid={}", tid, wait_tid);
+                    return true;
+                }
+
+                // pop task2 from waited list
+                //println!("Haogy alloc_is_safety: before !remove!: tid={} wait_tid={}", tid, wait_tid);
+                new_waited_tids.remove(serial);
+                
+                // dealloc resources
+                for i in 0..resources_number { 
+                    //println!("Haogy alloc_is_safety: before !update available!: tid={} wait_tid={}", tid, wait_tid);
+                    new_available[i] += self.semaphore_need[wait_tid][i];
+                    new_available[i] += self.semaphore_allocation[wait_tid][i];
+                }
+
+            } else {
+                //println!("Haogy alloc_is_safety: Unsafe! new_waited_tids={:?} |  | new_available={:?}", &new_waited_tids, &new_available);
+                return false;
+            }
+        }
+        
+        true
+    }
     // ****** END xisanlou add at ch8 No.11
 }
 

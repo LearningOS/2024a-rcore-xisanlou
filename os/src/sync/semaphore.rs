@@ -37,11 +37,9 @@ impl Semaphore {
         if inner.count <= 0 {
             if let Some(task) = inner.wait_queue.pop_front() {
                 wakeup_task(task);
-                //println!("Kernel: Haogy wakeup task from sem wait_queue_len={}", inner.wait_queue.len());
             }
         }
     }
-
 
     /// down operation of semaphore
     pub fn down(&self) {

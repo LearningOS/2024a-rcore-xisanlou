@@ -83,16 +83,27 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     let tid = task_inner.res.as_ref().unwrap().tid;
 
     // ****** START xisanlou add at ch8 No.1
-    let mut process_inner = process.inner_exclusive_access();
-    if process_inner.enable_deadlock_detect == true {
-        process_inner.dealloc_semaphore_from_task(tid);
+    let process_inner = process.inner_exclusive_access();
+    let enable_deadlock_detect = process_inner.enable_deadlock_detect;
+    drop(process_inner);
+
+    if enable_deadlock_detect == true {
+        let mut process_inner = process.inner_exclusive_access();
         process_inner.finish[tid] = true;
-        if let Some(task3) = process_inner.pop_task_from_wait_queue() {
+        process_inner.dealloc_semaphore_from_task(tid);
+        let option_task3 = process_inner.pop_task_from_wait_queue();
+        drop(process_inner);
+
+        if let Some(task3) = option_task3 {
+            let task3_tid = task3.get_tid();
+            let mut process_inner = process.inner_exclusive_access();
+            process_inner.alloc_semaphores_to_task(task3_tid);
+            drop(process_inner);
             wakeup_task(task3);
         }
         //println!("Kernel Haogy: task exit tid={}", tid);
     }
-    drop(process_inner);
+    
     // ****** END xisanlou add at ch8 No.1
 
     // record exit code

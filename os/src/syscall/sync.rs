@@ -228,21 +228,34 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
     // ****** END xisanlou add at ch8 No.14
     let process = current_process();
     // ****** START xisanlou add at ch8 No.11
-    let mut process_inner = process.inner_exclusive_access();
-    
+    //println!("Haogy Kernel SEM_UP tid={} sem_id={} Begin", tid, sem_id);
+    let process_inner = process.inner_exclusive_access();
     let enable_deadlock_detect = process_inner.enable_deadlock_detect;
+    drop(process_inner);
+
     if enable_deadlock_detect {
+        let mut process_inner = process.inner_exclusive_access();
         process_inner.semaphore_available[sem_id] += 1;
-        if let Some(task2) = process_inner.pop_task_from_wait_queue() {
+        
+        let option_task2 = process_inner.pop_task_from_wait_queue();
+        drop(process_inner);
+
+        if let Some(task2) = option_task2 {
+            let task2_tid = task2.get_tid();
+            //println!("Haogy Kernel SEM_UP tid={} sem_id={} wakeup_task={}", tid, sem_id, task2_tid);
+            let mut process_inner = process.inner_exclusive_access();
+            process_inner.alloc_semaphores_to_task(task2_tid);
+            drop(process_inner);
             wakeup_task(task2);
         }
-    } else {    
+    } else { 
+        let process_inner = process.inner_exclusive_access();   
         let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
         drop(process_inner);     
         sem.up();
     }
     // ****** END xisanlou add at ch8 No.11
-    //println!("Haogy Kernel UP END tid={} sem_id={}", tid, sem_id);
+    //println!("Haogy Kernel SEM_UP END tid={} sem_id={}", tid, sem_id);
     0
 }
 /// semaphore down syscall
@@ -265,33 +278,66 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     let process = current_process();
 
     // ****** START xisanlou add at ch8 No.13
-    let mut process_inner = process.inner_exclusive_access();
-    if process_inner.enable_deadlock_detect == true {
+    //println!("Haogy Kernel SEM_DOWN tid={} sem_id={} Begin", tid, sem_id);
+    let process_inner = process.inner_exclusive_access();
+    let enable_deadlock_detect = process_inner.enable_deadlock_detect;
+    drop(process_inner);
+    
+    if enable_deadlock_detect == true {
+        //println!("Haogy Kernel SEM_DOWN tid={} sem_id={} enable_deadlock_detect==TRUE", tid, sem_id);
+        // self task has enough semaphores to continue running
+        let mut process_inner = process.inner_exclusive_access();
         process_inner.semaphore_need[tid][sem_id] += 1;
-        //println!("Haogy Kernel tid={} sem_id={} semaphore_need={} semaphore_avilable={}", tid, sem_id, process_inner.semaphore_need[tid][sem_id], process_inner.semaphore_available[sem_id]);
-        
-        if process_inner.task_running_has_enough_semaphores(tid) {
+        let self_can_continue = process_inner.semaphore_need[tid][sem_id] <= process_inner.semaphore_available[sem_id]; 
+        drop(process_inner);
+        if self_can_continue {
+            let mut process_inner = process.inner_exclusive_access();
             process_inner.alloc_semaphores_to_task(tid);
             return 0;
-        } else if let Some(task2) =process_inner.pop_task_from_wait_queue() {
-            wakeup_task(task2);
-            block_current_and_run_next();
-            return 0;
+        }
+
+        let process_inner = process.inner_exclusive_access();
+        let is_safety = process_inner.alloc_is_safety(tid);
+        //println!("Haogy Kernel SEM_DOWN tid={} sem_id={} alloc_is_safety return", tid, sem_id);
+        drop(process_inner);
+
+        // test security
+        if is_safety {
+            if tid != 0 {
+                let mut process_inner = process.inner_exclusive_access();
+                process_inner.semaphore_wait_queue.push(current_task());
+                drop(process_inner);
+                block_current_and_run_next();
+                return 0;
+            } else {
+                let mut process_inner = process.inner_exclusive_access();
+                process_inner.alloc_semaphores_to_task(0);
+                return 0;
+            }
+
         } else {
-            //println!("Haogy Kernel find !!deadlock!! tid={} sem_id={}", tid, sem_id);
+            let mut process_inner = process.inner_exclusive_access();
+            //println!("Haogy Kernel SEM_DOWN END !!deadlock!! tid={} sem_id={} need={:?} available={:?} alloc={:?} finish={:?} wait_queue.len={:?}", tid, sem_id, 
+            //        process_inner.semaphore_need,
+            //        process_inner.semaphore_available,
+            //        process_inner.semaphore_allocation,
+            //        process_inner.finish,
+            //        process_inner.semaphore_wait_queue.len(),
+            //);
             process_inner.semaphore_need[tid][sem_id] -= 1;
             return -0xdead;
         }  
-    } else {
+    } 
     // ****** END xisanlou add at ch8 No.13
 
-        let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
-        drop(process_inner);
-        sem.down();
-        //println!("Haogy Kernel DOWN END tid={} sem_id={}", tid, sem_id);
-        return 0;
-    }
+    let process_inner = process.inner_exclusive_access();
+    let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+    drop(process_inner);
+    sem.down();
+    //println!("Haogy Kernel DOWN END tid={} sem_id={}", tid, sem_id);
+    return 0;
 }
+
 /// condvar create syscall
 pub fn sys_condvar_create() -> isize {
     trace!(
@@ -387,3 +433,7 @@ pub fn sys_enable_deadlock_detect(_enabled: usize) -> isize {
     0
     // ****** END xisanlou add at ch8 No.6
 }
+
+
+
+

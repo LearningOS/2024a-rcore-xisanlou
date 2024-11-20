@@ -30,34 +30,12 @@ impl TaskControlBlock {
     }
 
     // ****** START xisanlou add at ch8 No.1
-    /// test task has enough semaphores to running
-    pub fn task_running_has_enough_semaphores(&self) -> bool {
+    /// get task tid
+    pub fn get_tid(&self) -> usize {
         let task_inner = self.inner.exclusive_access();
-        let tid = task_inner.res.as_ref().unwrap().tid;
-
-        let process = self.process.upgrade().unwrap();
-        let process_inner = process.inner_exclusive_access();
-        process_inner.task_running_has_enough_semaphores(tid)
-
+        task_inner.res.as_ref().unwrap().tid
     }
-
-    /// allocate semaphore resources to task
-    pub fn alloc_semaphores_to_task(&self) {
-        let task_inner = self.inner.exclusive_access();
-        let tid = task_inner.res.as_ref().unwrap().tid;
-
-        let process = self.process.upgrade().unwrap();
-        let mut process_inner = process.inner_exclusive_access();
-        process_inner.alloc_semaphores_to_task(tid);
-
-    }
-
-    /// get enable deadlock
-    pub fn enable_deadlock_detect(&self) -> bool {
-        let process = self.process.upgrade().unwrap();
-        let process_inner = process.inner_exclusive_access();
-        process_inner.enable_deadlock_detect 
-    }
+    
     // ****** END xisanlou add at ch8 No.1
 }
 
